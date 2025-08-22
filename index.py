@@ -9,7 +9,7 @@ BOT_TOKEN = "7638935379:AAEmLD7JHLZ36Ywh5tvmlP1F8xzrcNrym_Q"
 bot = telebot.TeleBot(BOT_TOKEN)
 app = Flask(__name__)
 
-# --- Portfolio Data (customize for multiple users if needed) ---
+# --- Portfolio Data (customize with your coins and amounts) ---
 portfolio_data = {
     "Bitcoin": {"amount": 0.5, "symbol": "bitcoin"},
     "Ethereum": {"amount": 2, "symbol": "ethereum"},
@@ -80,8 +80,7 @@ def webhook_handler():
 # --- Set Webhook Endpoint ---
 @app.route('/')
 def set_webhook():
-WEBHOOK_URL = "https://shaybot.onrender.com/" + BOT_TOKEN
-/" + BOT_TOKEN
+    WEBHOOK_URL = "https://shaybot.onrender.com/" + BOT_TOKEN  # ✅ Correctly formatted
     bot.remove_webhook()
     bot.set_webhook(url=WEBHOOK_URL)
     return "Webhook set!", 200
@@ -89,4 +88,5 @@ WEBHOOK_URL = "https://shaybot.onrender.com/" + BOT_TOKEN
 # --- Run Flask App ---
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+
 
