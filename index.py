@@ -1,3 +1,4 @@
+
 import os
 from flask import Flask, request
 import telebot
@@ -10,34 +11,32 @@ bot = telebot.TeleBot(BOT_TOKEN)
 app = Flask(__name__)
 
 portfolio_data = {
-    "Bitcoin": {"amount": 0.5, "symbol": "bitcoin"},
-    "Ethereum": {"amount": 2, "symbol": "ethereum"},
-    "Solana": {"amount": 50, "symbol": "solana"}
+    "Bitcoin": {"amount": 0.5, "symbol": "BTCUSDT"},
+    "Ethereum": {"amount": 2, "symbol": "ETHUSDT"},
+    "Solana": {"amount": 50, "symbol": "SOLUSDT"}
 }
 
 HEADERS = {"User-Agent": "Mozilla/5.0"}
 
 def get_price(symbol):
     try:
-        url = f"https://api.coingecko.com/api/v3/simple/price?ids={symbol}&vs_currencies=usd&include_24hr_change=true"
-        response = requests.get(url, headers=HEADERS, timeout=10)
-        data = response.json()
-        if symbol in data:
-            return data[symbol]
-        return None
+        url_price = f"https://api.binance.com/api/v3/ticker/price?symbol={symbol}"
+        url_24h = f"https://api.binance.com/api/v3/ticker/24hr?symbol={symbol}"
+        price_data = requests.get(url_price, headers=HEADERS, timeout=15).json()
+        stats = requests.get(url_24h, headers=HEADERS, timeout=15).json()
+        return {"price": float(price_data["price"]), "change": float(stats.get("priceChangePercent", 0))}
     except Exception as e:
-        print(f"Price fetch error for {symbol}: {e}")
+        print(f"Error fetching price for {symbol}: {e}")
         return None
 
-def get_historical_prices(symbol, days=14):
+def get_historical_prices(symbol, limit=50):
     try:
-        url = f"https://api.coingecko.com/api/v3/coins/{symbol}/market_chart?vs_currency=usd&days={days}&interval=daily"
-        response = requests.get(url, headers=HEADERS, timeout=10)
-        data = response.json()
-        prices = [p[1] for p in data['prices']]
-        return prices
+        url = f"https://api.binance.com/api/v3/klines?symbol={symbol}&interval=1d&limit={limit}"
+        data = requests.get(url, headers=HEADERS, timeout=15).json()
+        closes = [float(candle[4]) for candle in data]
+        return closes
     except Exception as e:
-        print(f"Historical data fetch error for {symbol}: {e}")
+        print(f"Error fetching historical for {symbol}: {e}")
         return []
 
 def calculate_rsi(prices, period=14):
@@ -58,7 +57,7 @@ def calculate_ma(prices, period=14):
 def generate_signals():
     signals = ""
     for coin, data in portfolio_data.items():
-        prices = get_historical_prices(data['symbol'])
+        prices = get_historical_prices(data["symbol"])
         if not prices:
             signals += f"{coin}: Error fetching data\n"
             continue
@@ -80,11 +79,11 @@ def build_portfolio_text():
     text = "📊 Your Portfolio:\n\n"
     total_value = 0
     for coin, data in portfolio_data.items():
-        price_data = get_price(data['symbol'])
+        price_data = get_price(data["symbol"])
         if price_data:
-            price = price_data['usd']
-            change = price_data.get('usd_24h_change', 0)
-            value = price * data['amount']
+            price = price_data["price"]
+            change = price_data["change"]
+            value = price * data["amount"]
             total_value += value
             text += f"{coin}: {data['amount']} × ${price:.2f} = ${value:.2f} ({change:+.2f}% 24h)\n"
         else:
@@ -94,19 +93,23 @@ def build_portfolio_text():
 
 def get_top_movers(limit=5):
     try:
-        url = "https://api.coingecko.com/api/v3/coins/markets"
-        params = {"vs_currency": "usd", "order": "market_cap_desc", "per_page": limit, "page": 1, "price_change_percentage": "24h"}
-        response = requests.get(url, headers=HEADERS, params=params, timeout=10)
-        data = response.json()
-        top = ""
-        for coin in data:
-            top += f"{coin['name']} (${coin['current_price']:.2f}) {coin['price_change_percentage_24h']:+.2f}%\n"
-        return top
+        url = "https://api.binance.com/api/v3/ticker/24hr"
+        data = requests.get(url, headers=HEADERS, timeout=15).json()
+        movers = sorted(data, key=lambda x: float(x.get("priceChangePercent", 0)), reverse=True)
+        text = ""
+        count = 0
+        for coin in movers:
+            if coin["symbol"].endswith("USDT"):
+                text += f'{coin["symbol"]}: ${float(coin["lastPrice"]):.2f} ({float(coin["priceChangePercent"]):+.2f}% 24h)\n'
+                count += 1
+            if count >= limit:
+                break
+        return text
     except Exception as e:
-        print(f"Top movers fetch error: {e}")
+        print(f"Error fetching top movers: {e}")
         return "Error fetching top movers"
 
-@bot.message_handler(commands=['start'])
+@bot.message_handler(commands=["start"])
 def start_command(message):
     markup = types.InlineKeyboardMarkup()
     markup.add(types.InlineKeyboardButton("Live Prices", callback_data="live_prices"))
@@ -123,35 +126,40 @@ def callback_handler(call):
         markup = types.InlineKeyboardMarkup()
         markup.add(types.InlineKeyboardButton("Back to Dashboard", callback_data="dashboard"))
         bot.edit_message_text(text, call.message.chat.id, call.message.message_id, reply_markup=markup)
+
     elif call.data == "technical_analysis":
         text = "📊 Technical Analysis (sample data):\n\n"
         for coin in portfolio_data.keys():
-            prices = get_historical_prices(portfolio_data[coin]['symbol'])
+            prices = get_historical_prices(portfolio_data[coin]["symbol"])
             ma14 = calculate_ma(prices)
             rsi = calculate_rsi(prices)
             text += f"{coin}: RSI14={rsi if rsi else 'N/A'}, MA14=${ma14 if ma14 else 'N/A'}\n"
         markup = types.InlineKeyboardMarkup()
         markup.add(types.InlineKeyboardButton("Back to Dashboard", callback_data="dashboard"))
         bot.edit_message_text(text, call.message.chat.id, call.message.message_id, reply_markup=markup)
+
     elif call.data == "top_movers":
         text = "🚀 Top Movers 24h:\n\n" + get_top_movers()
         markup = types.InlineKeyboardMarkup()
         markup.add(types.InlineKeyboardButton("Back to Dashboard", callback_data="dashboard"))
         bot.edit_message_text(text, call.message.chat.id, call.message.message_id, reply_markup=markup)
+
     elif call.data == "signals":
         text = "📢 Trading Signals:\n\n" + generate_signals()
         markup = types.InlineKeyboardMarkup()
         markup.add(types.InlineKeyboardButton("Back to Dashboard", callback_data="dashboard"))
         bot.edit_message_text(text, call.message.chat.id, call.message.message_id, reply_markup=markup)
+
     elif call.data == "settings":
         text = "⚙️ Settings:\n- Add/Remove coins (future update)\n- Notifications (future update)"
         markup = types.InlineKeyboardMarkup()
         markup.add(types.InlineKeyboardButton("Back to Dashboard", callback_data="dashboard"))
         bot.edit_message_text(text, call.message.chat.id, call.message.message_id, reply_markup=markup)
+
     elif call.data == "dashboard":
         start_command(call.message)
 
-@app.route('/' + BOT_TOKEN, methods=['POST'])
+@app.route("/" + BOT_TOKEN, methods=["POST"])
 def webhook_handler():
     try:
         update = telebot.types.Update.de_json(request.get_json())
@@ -160,12 +168,13 @@ def webhook_handler():
         print("Webhook error:", e)
     return "!", 200
 
-@app.route('/')
+@app.route("/")
 def set_webhook():
-    WEBHOOK_URL = "https://shaybot-8.onrender.com/" + BOT_TOKEN
+    WEBHOOK_URL = "https://shaybot-10.onrender.com/" + BOT_TOKEN
     bot.remove_webhook()
     bot.set_webhook(url=WEBHOOK_URL)
     return "Webhook set!", 200
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+
