@@ -9,7 +9,6 @@ BOT_TOKEN = "7638935379:AAEmLD7JHLZ36Ywh5tvmlP1F8xzrcNrym_Q"
 bot = telebot.TeleBot(BOT_TOKEN)
 app = Flask(__name__)
 
-# Portfolio
 portfolio_data = {
     "Bitcoin": {"amount": 0.5, "symbol": "bitcoin"},
     "Ethereum": {"amount": 2, "symbol": "ethereum"},
@@ -18,7 +17,6 @@ portfolio_data = {
 
 HEADERS = {"User-Agent": "Mozilla/5.0"}
 
-# --- Fetch current price and 24h change ---
 def get_price(symbol):
     try:
         url = f"https://api.coingecko.com/api/v3/simple/price?ids={symbol}&vs_currencies=usd&include_24hr_change=true"
@@ -31,19 +29,17 @@ def get_price(symbol):
         print(f"Price fetch error for {symbol}: {e}")
         return None
 
-# --- Historical data for signals ---
 def get_historical_prices(symbol, days=14):
     try:
         url = f"https://api.coingecko.com/api/v3/coins/{symbol}/market_chart?vs_currency=usd&days={days}&interval=daily"
         response = requests.get(url, headers=HEADERS, timeout=10)
         data = response.json()
-        prices = [p[1] for p in data['prices']]  # Extract closing prices
+        prices = [p[1] for p in data['prices']]
         return prices
     except Exception as e:
         print(f"Historical data fetch error for {symbol}: {e}")
         return []
 
-# --- RSI calculation ---
 def calculate_rsi(prices, period=14):
     if len(prices) < period + 1:
         return None
@@ -54,13 +50,11 @@ def calculate_rsi(prices, period=14):
     rsi = 100 - (100 / (1 + rs))
     return round(rsi, 2)
 
-# --- Moving average ---
 def calculate_ma(prices, period=14):
     if len(prices) < period:
         return None
     return round(np.mean(prices[-period:]), 2)
 
-# --- Generate signals ---
 def generate_signals():
     signals = ""
     for coin, data in portfolio_data.items():
@@ -82,7 +76,6 @@ def generate_signals():
             signals += f"{coin}: Hold ⚠️ (Price: ${current_price:.2f}, RSI: {rsi})\n"
     return signals
 
-# --- Build portfolio text ---
 def build_portfolio_text():
     text = "📊 Your Portfolio:\n\n"
     total_value = 0
@@ -99,17 +92,10 @@ def build_portfolio_text():
     text += f"\n💰 Total Portfolio Value: ${total_value:.2f}"
     return text
 
-# --- Top movers ---
 def get_top_movers(limit=5):
     try:
         url = "https://api.coingecko.com/api/v3/coins/markets"
-        params = {
-            "vs_currency": "usd",
-            "order": "market_cap_desc",
-            "per_page": limit,
-            "page": 1,
-            "price_change_percentage": "24h"
-        }
+        params = {"vs_currency": "usd", "order": "market_cap_desc", "per_page": limit, "page": 1, "price_change_percentage": "24h"}
         response = requests.get(url, headers=HEADERS, params=params, timeout=10)
         data = response.json()
         top = ""
@@ -120,7 +106,6 @@ def get_top_movers(limit=5):
         print(f"Top movers fetch error: {e}")
         return "Error fetching top movers"
 
-# --- /start command ---
 @bot.message_handler(commands=['start'])
 def start_command(message):
     markup = types.InlineKeyboardMarkup()
@@ -131,7 +116,6 @@ def start_command(message):
     markup.add(types.InlineKeyboardButton("Settings", callback_data="settings"))
     bot.send_message(message.chat.id, "📈 Welcome to SaahilCryptoBot Dashboard:", reply_markup=markup)
 
-# --- Callback handler ---
 @bot.callback_query_handler(func=lambda call: True)
 def callback_handler(call):
     if call.data == "live_prices":
@@ -139,7 +123,6 @@ def callback_handler(call):
         markup = types.InlineKeyboardMarkup()
         markup.add(types.InlineKeyboardButton("Back to Dashboard", callback_data="dashboard"))
         bot.edit_message_text(text, call.message.chat.id, call.message.message_id, reply_markup=markup)
-
     elif call.data == "technical_analysis":
         text = "📊 Technical Analysis (sample data):\n\n"
         for coin in portfolio_data.keys():
@@ -150,29 +133,24 @@ def callback_handler(call):
         markup = types.InlineKeyboardMarkup()
         markup.add(types.InlineKeyboardButton("Back to Dashboard", callback_data="dashboard"))
         bot.edit_message_text(text, call.message.chat.id, call.message.message_id, reply_markup=markup)
-
     elif call.data == "top_movers":
         text = "🚀 Top Movers 24h:\n\n" + get_top_movers()
         markup = types.InlineKeyboardMarkup()
         markup.add(types.InlineKeyboardButton("Back to Dashboard", callback_data="dashboard"))
         bot.edit_message_text(text, call.message.chat.id, call.message.message_id, reply_markup=markup)
-
     elif call.data == "signals":
         text = "📢 Trading Signals:\n\n" + generate_signals()
         markup = types.InlineKeyboardMarkup()
         markup.add(types.InlineKeyboardButton("Back to Dashboard", callback_data="dashboard"))
         bot.edit_message_text(text, call.message.chat.id, call.message.message_id, reply_markup=markup)
-
     elif call.data == "settings":
         text = "⚙️ Settings:\n- Add/Remove coins (future update)\n- Notifications (future update)"
         markup = types.InlineKeyboardMarkup()
         markup.add(types.InlineKeyboardButton("Back to Dashboard", callback_data="dashboard"))
         bot.edit_message_text(text, call.message.chat.id, call.message.message_id, reply_markup=markup)
-
     elif call.data == "dashboard":
         start_command(call.message)
 
-# --- Webhook endpoint ---
 @app.route('/' + BOT_TOKEN, methods=['POST'])
 def webhook_handler():
     try:
@@ -182,18 +160,12 @@ def webhook_handler():
         print("Webhook error:", e)
     return "!", 200
 
-# --- Set webhook ---
 @app.route('/')
 def set_webhook():
-    WEBHOOK_URL = "https://shaybot-7.onrender.com/" + BOT_TOKEN
+    WEBHOOK_URL = "https://shaybot-8.onrender.com/" + BOT_TOKEN
     bot.remove_webhook()
     bot.set_webhook(url=WEBHOOK_URL)
     return "Webhook set!", 200
 
-# --- Run Flask app ---
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
-
-# --- Run Flask app ---
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
