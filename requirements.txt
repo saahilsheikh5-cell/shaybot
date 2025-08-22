@@ -1,4 +1,6 @@
 pyTelegramBotAPI
 Flask
 requests
+numpy
+
 
