@@ -185,7 +185,7 @@ def webhook_handler():
 # --- Set webhook ---
 @app.route('/')
 def set_webhook():
-    WEBHOOK_URL = "https://shaybot-6.onrender.com/" + BOT_TOKEN
+    WEBHOOK_URL = "https://shaybot-7.onrender.com/" + BOT_TOKEN
     bot.remove_webhook()
     bot.set_webhook(url=WEBHOOK_URL)
     return "Webhook set!", 200
