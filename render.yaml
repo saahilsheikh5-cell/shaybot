@@ -1,4 +1,5 @@
-pyTelegramBotAPI
-Flask
-requests
-numpy
+type: web
+env: python
+buildCommand: pip install -r requirements.txt
+startCommand: python index.py
+
