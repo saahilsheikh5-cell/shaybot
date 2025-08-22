@@ -9,7 +9,7 @@ BOT_TOKEN = "7638935379:AAEmLD7JHLZ36Ywh5tvmlP1F8xzrcNrym_Q"
 bot = telebot.TeleBot(BOT_TOKEN)
 app = Flask(__name__)
 
-# --- Portfolio Data (customize with your coins and amounts) ---
+# --- Portfolio Data ---
 portfolio_data = {
     "Bitcoin": {"amount": 0.5, "symbol": "bitcoin"},
     "Ethereum": {"amount": 2, "symbol": "ethereum"},
@@ -69,18 +69,20 @@ def callback_handler(call):
         markup.add(types.InlineKeyboardButton("Refresh Portfolio", callback_data="portfolio"))
         bot.edit_message_text(text, call.message.chat.id, call.message.message_id, reply_markup=markup)
 
-# --- Webhook Endpoint ---
+# --- Webhook Endpoint (Robust) ---
 @app.route('/' + BOT_TOKEN, methods=['POST'])
 def webhook_handler():
-    json_str = request.get_data().decode('utf-8')
-    update = telebot.types.Update.de_json(json_str)
-    bot.process_new_updates([update])
+    try:
+        update = telebot.types.Update.de_json(request.get_json())
+        bot.process_new_updates([update])
+    except Exception as e:
+        print("Webhook error:", e)
     return "!", 200
 
 # --- Set Webhook Endpoint ---
 @app.route('/')
 def set_webhook():
-    WEBHOOK_URL = "https://shaybot.onrender.com/" + BOT_TOKEN  # ✅ Correctly formatted
+    WEBHOOK_URL = "https://shaybot-5.onrender.com/" + BOT_TOKEN  # ✅ Correct Render URL
     bot.remove_webhook()
     bot.set_webhook(url=WEBHOOK_URL)
     return "Webhook set!", 200
