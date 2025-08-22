@@ -80,7 +80,7 @@ def webhook_handler():
 # --- Set Webhook Endpoint ---
 @app.route('/')
 def set_webhook():
-    WEBHOOK_URL = "https://shaybot.onrender.com/" + BOT_TOKEN
+WEBHOOK_URL = "https://shaybot.onrender.com/" + BOT_TOKEN
 /" + BOT_TOKEN
     bot.remove_webhook()
     bot.set_webhook(url=WEBHOOK_URL)
