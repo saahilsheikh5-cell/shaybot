@@ -1,27 +1,27 @@
+import os
 import telebot
 from telebot import types
 import requests
 import pandas as pd
 import ta
-import time
 import threading
+import time
+from flask import Flask, request
 
 # === BOT CONFIG ===
 BOT_TOKEN = "7638935379:AAEmLD7JHLZ36Ywh5tvmlP1F8xzrcNrym_Q"
 WEBHOOK_URL = "https://shaybot-13.onrender.com/" + BOT_TOKEN
-
 bot = telebot.TeleBot(BOT_TOKEN, parse_mode="HTML")
 
 # === SIGNAL STATE ===
 signals_enabled = True
+chat_id = None
 
-# === SYMBOLS TO MONITOR ===
+# === SYMBOLS & TIMEFRAMES ===
 symbols = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT",
            "BNBUSDT", "PEPEUSDT", "BONKUSDT", "MEMEUSDT",
            "PUMPUSDT", "FARTCOINUSDT", "TRUMPUSDT", "VINEUSDT",
            "MAVIAUSDT", "YFIUSDT", "ADAUSDT", "LINKUSDT"]
-
-# === TIMEFRAMES ===
 timeframes = ["1m", "5m", "15m", "1h", "4h", "1d"]
 
 # === FETCH PRICE DATA ===
@@ -35,41 +35,39 @@ def fetch_klines(symbol, interval, limit=100):
         ])
         df["close"] = pd.to_numeric(df["close"])
         return df
-    except Exception:
+    except:
         return None
 
-# === GENERATE TECHNICAL SIGNALS ===
+# === TECHNICAL SIGNALS ===
 def get_signal(symbol, interval):
     df = fetch_klines(symbol, interval)
     if df is None or df.empty:
         return "Error"
-
     try:
         df["rsi"] = ta.momentum.RSIIndicator(df["close"], window=14).rsi()
         df["macd"] = ta.trend.MACD(df["close"]).macd()
+        price = df["close"].iloc[-1]
         rsi = df["rsi"].iloc[-1]
         macd = df["macd"].iloc[-1]
-        price = df["close"].iloc[-1]
-
         if rsi < 30 and macd > 0:
             return f"✅ BUY | Price: {price:.2f}, RSI={rsi:.2f} (MACD Bullish)"
         elif rsi > 70 and macd < 0:
             return f"❌ SELL | Price: {price:.2f}, RSI={rsi:.2f} (MACD Bearish)"
         else:
             return "No clear signal"
-    except Exception:
+    except:
         return "Error"
 
-# === SIGNALS BROADCAST ===
+# === SIGNAL BROADCAST ===
 def broadcast_signals():
+    global chat_id
     while True:
-        if signals_enabled:
+        if signals_enabled and chat_id:
             message = "📊 Technical Analysis Signals:\n\n"
-            for symbol in symbols:
+            for symbol in symbols[:10]:  # limit for fast message
                 message += f"🔹 {symbol}\n"
                 for tf in timeframes:
-                    signal = get_signal(symbol, tf)
-                    message += f"   ⏱ {tf}: {signal}\n"
+                    message += f"   ⏱ {tf}: {get_signal(symbol, tf)}\n"
                 message += "\n"
             try:
                 bot.send_message(chat_id, message)
@@ -77,86 +75,95 @@ def broadcast_signals():
                 pass
         time.sleep(300)  # every 5 minutes
 
-# === START COMMAND ===
+# === BOT COMMANDS ===
 @bot.message_handler(commands=["start"])
 def start(message):
     global chat_id
     chat_id = message.chat.id
-
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
     markup.row("📈 Technical Analysis", "💰 Live Prices")
     markup.row("✅ Signals ON", "❌ Signals OFF")
     markup.row("🚀 Top Movers")
-
     bot.send_message(chat_id, "Welcome! Choose an option:", reply_markup=markup)
 
 # === BUTTON HANDLERS ===
-@bot.message_handler(func=lambda msg: msg.text == "📈 Technical Analysis")
+@bot.message_handler(func=lambda m: m.text == "📈 Technical Analysis")
 def ta_handler(message):
     text = "📊 Technical Analysis Signals:\n\n"
-    for symbol in symbols[:5]:  # show top 5 for quick response
+    for symbol in symbols[:10]:
         text += f"🔹 {symbol}\n"
         for tf in timeframes:
-            signal = get_signal(symbol, tf)
-            text += f"   ⏱ {tf}: {signal}\n"
+            text += f"   ⏱ {tf}: {get_signal(symbol, tf)}\n"
         text += "\n"
     bot.send_message(message.chat.id, text)
 
-@bot.message_handler(func=lambda msg: msg.text == "💰 Live Prices")
-def live_price_handler(message):
+@bot.message_handler(func=lambda m: m.text == "💰 Live Prices")
+def live_prices(message):
     text = "💰 Live Prices:\n\n"
     for symbol in symbols[:10]:
-        url = f"https://api.binance.com/api/v3/ticker/price?symbol={symbol}"
         try:
-            price = float(requests.get(url, timeout=5).json()["price"])
+            price = float(requests.get(f"https://api.binance.com/api/v3/ticker/price?symbol={symbol}", timeout=5).json()["price"])
             text += f"{symbol}: {price:.2f}\n"
         except:
             text += f"{symbol}: Error\n"
     bot.send_message(message.chat.id, text)
 
-@bot.message_handler(func=lambda msg: msg.text == "🚀 Top Movers")
+@bot.message_handler(func=lambda m: m.text == "🚀 Top Movers")
 def movers_handler(message):
     text = "🚀 Top Movers\n\n"
-
-    for tf, interval in [("1 Hour", "1h"), ("24 Hour", "1d")]:
+    for label, interval in [("1 Hour", "1h"), ("24 Hour", "1d")]:
         movers = []
-        for symbol in symbols[:10]:
-            df = fetch_klines(symbol, interval, 2)
+        for sym in symbols[:10]:
+            df = fetch_klines(sym, interval, 2)
             if df is not None and len(df) >= 2:
                 try:
                     p1, p2 = df["close"].iloc[-2], df["close"].iloc[-1]
-                    change = (p2 - p1) / p1 * 100
-                    movers.append((symbol, change))
+                    movers.append((sym, (p2 - p1)/p1*100))
                 except:
                     continue
         movers.sort(key=lambda x: abs(x[1]), reverse=True)
-        text += f"⏱ {tf} Movers:\n"
+        text += f"⏱ {label} Movers:\n"
         for sym, ch in movers[:5]:
             text += f"{sym}: {ch:+.2f}%\n"
         text += "\n"
-
     bot.send_message(message.chat.id, text)
 
-@bot.message_handler(func=lambda msg: msg.text == "✅ Signals ON")
-def enable_signals(message):
+@bot.message_handler(func=lambda m: m.text == "✅ Signals ON")
+def signals_on(message):
     global signals_enabled
     signals_enabled = True
     bot.send_message(message.chat.id, "✅ Signals have been ENABLED.")
 
-@bot.message_handler(func=lambda msg: msg.text == "❌ Signals OFF")
-def disable_signals(message):
+@bot.message_handler(func=lambda m: m.text == "❌ Signals OFF")
+def signals_off(message):
     global signals_enabled
     signals_enabled = False
     bot.send_message(message.chat.id, "❌ Signals have been DISABLED.")
 
-# === BACKGROUND THREAD ===
+# === START SIGNAL BROADCAST THREAD ===
 threading.Thread(target=broadcast_signals, daemon=True).start()
 
-# === START BOT ===
-bot.remove_webhook()
-bot.set_webhook(url=WEBHOOK_URL)
+# === FLASK SERVER FOR WEBHOOK ===
+server = Flask(__name__)
 
-print("Bot is running with Webhook...")
+@server.route("/" + BOT_TOKEN, methods=["POST"])
+def webhook():
+    json_str = request.stream.read().decode("utf-8")
+    update = telebot.types.Update.de_json(json_str)
+    bot.process_new_updates([update])
+    return "!", 200
+
+@server.route("/")
+def index():
+    bot.remove_webhook()
+    bot.set_webhook(url=WEBHOOK_URL)
+    return "Bot is running with Webhook!", 200
+
+# === RUN SERVER ===
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 5000))
+    server.run(host="0.0.0.0", port=port)
+
 
 
 
