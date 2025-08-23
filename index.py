@@ -5,6 +5,7 @@ import requests
 import time
 import threading
 import numpy as np
+from telebot import types
 
 # === CONFIG ===
 BOT_TOKEN = "7638935379:AAEmLD7JHLZ36Ywh5tvmlP1F8xzrcNrym_Q"
@@ -40,7 +41,8 @@ def calc_rsi(prices, period=14):
     deltas = np.diff(prices)
     gains = deltas[deltas > 0].sum() / period
     losses = -deltas[deltas < 0].sum() / period
-    if losses == 0: return 100
+    if losses == 0: 
+        return 100
     rs = gains / losses
     return 100 - (100 / (1 + rs))
 
@@ -51,7 +53,8 @@ def moving_average(prices, period=14):
 
 def generate_signal(symbol, interval):
     prices = fetch_klines(symbol, interval)
-    if not prices: return None
+    if not prices: 
+        return None
     rsi = calc_rsi(prices)
     ma = moving_average(prices)
     last_price = prices[-1]
@@ -59,9 +62,10 @@ def generate_signal(symbol, interval):
     if rsi is None or ma is None:
         return None
 
-    if rsi < 35 and last_price > ma:
+    # Relaxed conditions
+    if rsi < 40 and last_price > ma:
         return f"BUY ✅ — {symbol} {interval} | Price: {last_price:.2f}, RSI={rsi:.2f}, MA={ma:.2f}"
-    elif rsi > 70 and last_price < ma:
+    elif rsi > 65 and last_price < ma:
         return f"SELL ❌ — {symbol} {interval} | Price: {last_price:.2f}, RSI={rsi:.2f}, MA={ma:.2f}"
     else:
         return None
@@ -78,14 +82,37 @@ def top_movers():
 # === Bot Commands ===
 @bot.message_handler(commands=["start"])
 def start(message):
-    menu = ("📊 Portfolio\n"
-            "📈 Live Prices\n"
-            "📊 Technical Analysis\n"
-            "🚀 Top Movers\n"
-            "➕ Add Coin\n"
-            "➖ Remove Coin\n"
-            "🔔 Signals On")
-    bot.send_message(message.chat.id, "Welcome! Choose an option:\n\n" + menu)
+    # Build dashboard text
+    total = 0
+    dashboard = "📊 DASHBOARD\n\n"
+
+    # Portfolio summary
+    dashboard += "💰 Portfolio:\n"
+    for coin, qty in portfolio.items():
+        price, change = fetch_price(coin)
+        if price:
+            value = qty * price
+            total += value
+            dashboard += f"{coin[:-4]}: {qty} × ${price:.2f} = ${value:.2f} ({change:.2f}% 24h)\n"
+    dashboard += f"\n💰 Total Value: ${total:.2f}\n\n"
+
+    # Top movers
+    movers = top_movers()
+    dashboard += "🚀 Top Movers (1h):\n"
+    for sym, chg in movers:
+        dashboard += f"{sym}: {chg:.2f}%\n"
+
+    # Signals status
+    dashboard += "\n📡 Signals: ON"
+
+    # Keyboard buttons
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    markup.row("📊 Portfolio", "📈 Live Prices")
+    markup.row("📊 Technical Analysis", "🚀 Top Movers")
+    markup.row("➕ Add Coin", "➖ Remove Coin")
+    markup.row("🔔 Signals On", "🔕 Signals Off")
+
+    bot.send_message(message.chat.id, dashboard, reply_markup=markup)
 
 @bot.message_handler(func=lambda msg: msg.text == "📊 Portfolio")
 def portfolio_handler(message):
@@ -100,6 +127,15 @@ def portfolio_handler(message):
         else:
             text += f"{coin}: Error fetching price\n"
     text += f"\n💰 Total Portfolio Value: ${total:.2f}"
+    bot.send_message(message.chat.id, text)
+
+@bot.message_handler(func=lambda msg: msg.text == "📈 Live Prices")
+def live_prices(message):
+    text = "📈 Live Prices:\n\n"
+    for sym in watchlist:
+        price, change = fetch_price(sym)
+        if price:
+            text += f"{sym}: ${price:.2f} ({change:.2f}% 24h)\n"
     bot.send_message(message.chat.id, text)
 
 @bot.message_handler(func=lambda msg: msg.text == "📊 Technical Analysis")
