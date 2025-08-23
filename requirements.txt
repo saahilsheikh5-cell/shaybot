@@ -1,5 +1,4 @@
-pyTelegramBotAPI
-Flask
-requests
-numpy
-certifi
+pyTelegramBotAPI==4.15.2
+flask==3.0.2
+requests==2.31.0
+numpy==1.26.4
