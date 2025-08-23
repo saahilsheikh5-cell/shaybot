@@ -1,6 +1,9 @@
-type: web
-env: python
-buildCommand: pip install -r requirements.txt
-startCommand: python index.py
-
+services:
+  - type: web
+    name: telegram-crypto-bot
+    env: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: python index.py
+    autoDeploy: true
 
