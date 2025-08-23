@@ -1,4 +1,7 @@
-flask
+Flask
 pyTelegramBotAPI
-numpy
 requests
+pandas
+numpy
+TA-Lib
+
