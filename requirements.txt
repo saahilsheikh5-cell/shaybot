@@ -1,7 +1,8 @@
-pyTelegramBotAPI
-pandas
-requests
-ta
-flask
+pyTelegramBotAPI==4.13.0
+Flask==2.3.8
+pandas==2.1.1
+requests==2.32.1
+ta==0.10.2
+numpy==1.26.2
 
 
