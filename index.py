@@ -1,203 +1,163 @@
-
-import os
-import telebot
-import requests
 import time
 import threading
-import numpy as np
-from flask import Flask, request
+import telebot
 from telebot import types
+import requests
+import pandas as pd
+import numpy as np
 
+# Hardcoded credentials
 BOT_TOKEN = "7638935379:AAEmLD7JHLZ36Ywh5tvmlP1F8xzrcNrym_Q"
 WEBHOOK_URL = "https://shaybot-13.onrender.com/" + BOT_TOKEN
-bot = telebot.TeleBot(BOT_TOKEN)
 
-portfolio = {"BTCUSDT": 0.5, "ETHUSDT": 2, "SOLUSDT": 50}
-watchlist = set(portfolio.keys())
-signals_on = True
-active_chats = set()
-BASE_URL = "https://api.binance.com/api/v3"
+bot = telebot.TeleBot(BOT_TOKEN, threaded=True)
 
-def fetch_price(symbol):
+# Track user signal preferences
+user_signals = {}
+
+# Binance API endpoints
+BASE_URL = "https://api.binance.com"
+KLINES_ENDPOINT = "/api/v3/klines"
+TICKER_24HR_ENDPOINT = "/api/v3/ticker/24hr"
+
+# Watchlist (main + meme coins)
+WATCHLIST = [
+    "BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "BNBUSDT",
+    "PEPEUSDT", "BONKUSDT", "DOGEUSDT", "SHIBUSDT", "FLOKIUSDT",
+    "MEMEUSDT", "TRUMPUSDT", "VINEUSDT", "PUMPUSDT", "FARTCOINUSDT",
+    "MAVIAUSDT", "ADAUSDT", "LINKUSDT", "YFIUSDT"
+]
+
+# Helper: fetch klines
+def get_klines(symbol, interval, limit=100):
+    url = BASE_URL + KLINES_ENDPOINT
+    params = {"symbol": symbol, "interval": interval, "limit": limit}
     try:
-        r = requests.get(f"{BASE_URL}/ticker/24hr?symbol={symbol}", timeout=5).json()
-        return float(r["lastPrice"]), float(r["priceChangePercent"])
-    except:
-        return None, None
-
-def fetch_klines(symbol, interval="1m", limit=100):
-    try:
-        url = f"{BASE_URL}/klines?symbol={symbol}&interval={interval}&limit={limit}"
-        data = requests.get(url, timeout=5).json()
-        closes = [float(x[4]) for x in data]
-        return closes
-    except:
+        r = requests.get(url, params=params, timeout=10)
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        print(f"Error fetching klines {symbol}-{interval}: {e}")
         return []
 
-def calc_rsi(prices, period=14):
-    if len(prices) < period: return None
+# RSI calculation
+def calculate_rsi(prices, period=14):
     deltas = np.diff(prices)
-    gains = deltas[deltas > 0].sum() / period
-    losses = -deltas[deltas < 0].sum() / period
-    if losses == 0: return 100
-    rs = gains / losses
-    return 100 - (100 / (1 + rs))
+    if len(deltas) < period:
+        return 50
+    seed = deltas[:period]
+    up = seed[seed >= 0].sum() / period
+    down = -seed[seed < 0].sum() / period
+    rs = up / down if down != 0 else 0
+    rsi = 100 - (100 / (1 + rs))
+    return rsi
 
-def calc_macd(prices, fast=12, slow=26, signal=9):
-    if len(prices) < slow + signal: return None, None, None
-    fast_ma = np.mean(prices[-fast:])
-    slow_ma = np.mean(prices[-slow:])
-    macd = fast_ma - slow_ma
-    signal_line = np.mean([np.mean(prices[-(slow+i):]) for i in range(signal)])
-    hist = macd - signal_line
-    return macd, signal_line, hist
+# MACD calculation
+def calculate_macd(prices, slow=26, fast=12, signal=9):
+    exp1 = pd.Series(prices).ewm(span=fast, adjust=False).mean()
+    exp2 = pd.Series(prices).ewm(span=slow, adjust=False).mean()
+    macd = exp1 - exp2
+    signal_line = macd.ewm(span=signal, adjust=False).mean()
+    return macd.iloc[-1], signal_line.iloc[-1]
 
+# Generate signal
 def generate_signal(symbol, interval):
-    prices = fetch_klines(symbol, interval)
-    if not prices: return None
-    rsi = calc_rsi(prices)
-    macd, signal_line, hist = calc_macd(prices)
-    last_price = prices[-1]
-    if rsi is None or macd is None: return None
+    klines = get_klines(symbol, interval, 100)
+    if not klines:
+        return "No data"
+    closes = [float(k[4]) for k in klines]
+    price = closes[-1]
+    rsi = calculate_rsi(closes)
+    macd, signal_line = calculate_macd(closes)
+    trend = "Bullish" if macd > signal_line else "Bearish"
 
-    if rsi < 30: base_signal = "💚 STRONG BUY"
-    elif rsi < 40: base_signal = "✅ BUY"
-    elif rsi > 70: base_signal = "💔 STRONG SELL"
-    elif rsi > 60: base_signal = "❌ SELL"
-    else: return None
+    if rsi < 35 and macd > signal_line:
+        return f"✅ BUY | Price: {price:.2f}, RSI={rsi:.2f} (MACD {trend})"
+    elif rsi > 65 and macd < signal_line:
+        return f"❌ SELL | Price: {price:.2f}, RSI={rsi:.2f} (MACD {trend})"
+    else:
+        return "No clear signal"
 
-    trend = ""
-    if macd > signal_line: trend = " (MACD Bullish)"
-    elif macd < signal_line: trend = " (MACD Bearish)"
-
-    return f"{base_signal} — {symbol} {interval} | Price: {last_price:.2f}, RSI={rsi:.2f}{trend}"
-
-def top_movers(limit=5):
-    symbols = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT"]
-    movers_1h, movers_24h = [], []
-    for sym in symbols:
-        _, change = fetch_price(sym)
-        if change is not None:
-            movers_1h.append((sym, change))
-            movers_24h.append((sym, change))
-    movers_1h = sorted(movers_1h, key=lambda x: abs(x[1]), reverse=True)[:limit]
-    movers_24h = sorted(movers_24h, key=lambda x: abs(x[1]), reverse=True)[:limit]
-
-    msg = "🚀 *Top Movers*\n\n"
-    msg += "⏱ *1 Hour Movers:*\n"
-    for sym, chg in movers_1h: msg += f"{sym}: {chg:+.2f}%\n"
-    msg += "\n📅 *24 Hour Movers:*\n"
-    for sym, chg in movers_24h: msg += f"{sym}: {chg:+.2f}%\n"
-    return msg
-
-def get_portfolio_summary():
-    total = 0
-    text = "📊 *Your Portfolio:*\n\n"
-    for coin, qty in portfolio.items():
-        price, change = fetch_price(coin)
-        if price:
-            value = qty * price
-            total += value
-            text += f"{coin[:-4]}: {qty} × ${price:.2f} = ${value:.2f} ({change:.2f}% 24h)\n"
-        else: text += f"{coin}: Error fetching price\n"
-    text += f"\n💰 Total Portfolio Value: ${total:.2f}"
-    return text
-
-def get_signals_text():
-    text = "📊 *Technical Analysis Signals:*\n\n"
-    for sym in watchlist:
-        text += f"🔹 {sym}\n"
-        for interval in ["1m","5m","15m","1h","4h"]:
-            sig = generate_signal(sym, interval)
-            clean_sig = sig.split("—")[0].strip() + " | " + sig.split("|")[1].strip() if sig else "No clear signal"
-            text += f"   ⏱ {interval}: {clean_sig}\n"
-        text += "\n"
-    return text
-
-@bot.message_handler(commands=["start","dashboard"])
-def dashboard(message):
-    active_chats.add(message.chat.id)
-    markup = types.InlineKeyboardMarkup(row_width=2)
-    markup.add(
-        types.InlineKeyboardButton("📊 Portfolio", callback_data="portfolio"),
-        types.InlineKeyboardButton("📈 Live Prices", callback_data="live_prices"),
+# Handle /start
+@bot.message_handler(commands=["start"])
+def start(message):
+    chat_id = message.chat.id
+    user_signals[chat_id] = True  # default ON
+    keyboard = types.InlineKeyboardMarkup()
+    keyboard.row(
         types.InlineKeyboardButton("📊 Technical Analysis", callback_data="technical_analysis"),
-        types.InlineKeyboardButton("🚀 Top Movers", callback_data="top_movers"),
-        types.InlineKeyboardButton("➕ Add Coin", callback_data="add_coin"),
-        types.InlineKeyboardButton("➖ Remove Coin", callback_data="remove_coin"),
-        types.InlineKeyboardButton("🔔 Signals On/Off", callback_data="toggle_signals"),
+        types.InlineKeyboardButton("🚀 Top Movers", callback_data="top_movers")
     )
-    markup.add(types.InlineKeyboardButton("🔄 Refresh Dashboard", callback_data="refresh_dashboard"))
-    bot.send_message(message.chat.id, "📌 *Crypto Dashboard*\n\nChoose an option:", reply_markup=markup, parse_mode="Markdown")
+    keyboard.row(
+        types.InlineKeyboardButton("✅ Signals ON", callback_data="signals_on"),
+        types.InlineKeyboardButton("❌ Signals OFF", callback_data="signals_off")
+    )
+    bot.send_message(chat_id, "Welcome to the Crypto Bot Dashboard 🚀", reply_markup=keyboard)
 
+# Handle buttons
 @bot.callback_query_handler(func=lambda call: True)
 def callback_handler(call):
     chat_id = call.message.chat.id
-    data = call.data
 
-    if data == "portfolio":
-        bot.send_message(chat_id, get_portfolio_summary(), parse_mode="Markdown")
-    elif data == "technical_analysis":
-        bot.send_message(chat_id, get_signals_text(), parse_mode="Markdown")
-    elif data == "top_movers":
-        bot.send_message(chat_id, top_movers(), parse_mode="Markdown")
-    elif data == "add_coin":
-        bot.send_message(chat_id, "Send coin symbol to add (e.g., MATICUSDT)")
-        bot.register_next_step_handler(call.message, add_coin_step)
-    elif data == "remove_coin":
-        bot.send_message(chat_id, "Send coin symbol to remove")
-        bot.register_next_step_handler(call.message, remove_coin_step)
-    elif data == "toggle_signals":
-        global signals_on
-        signals_on = not signals_on
-        bot.send_message(chat_id, f"Signals are now {'ON' if signals_on else 'OFF'}")
-    elif data == "live_prices":
-        text = ""
-        for sym in watchlist:
-            price, change = fetch_price(sym)
-            if price: text += f"{sym}: ${price:.2f} ({change:+.2f}% 24h)\n"
+    if call.data == "technical_analysis":
+        text = "📊 Technical Analysis Signals:\n\n"
+        timeframes = ["1m", "5m", "15m", "1h", "4h", "1d"]
+        for sym in WATCHLIST:
+            text += f"🔹 {sym}\n"
+            for tf in timeframes:
+                signal = generate_signal(sym, tf)
+                text += f"   ⏱ {tf}: {signal}\n"
+            text += "\n"
         bot.send_message(chat_id, text)
-    elif data == "refresh_dashboard":
-        dashboard(call.message)
 
-def add_coin_step(message):
-    symbol = message.text.upper()
-    watchlist.add(symbol)
-    bot.send_message(message.chat.id, f"{symbol} added ✅")
+    elif call.data == "top_movers":
+        text = "🚀 Top Movers\n\n"
+        # 1H movers
+        changes_1h = {}
+        for sym in WATCHLIST:
+            klines = get_klines(sym, "1h", 2)
+            if len(klines) == 2:
+                open_price = float(klines[0][1])
+                close_price = float(klines[1][4])
+                change = ((close_price - open_price) / open_price) * 100
+                changes_1h[sym] = change
+        top_1h = sorted(changes_1h.items(), key=lambda x: x[1], reverse=True)[:5]
+        text += "⏱ 1 Hour Movers:\n" + "\n".join([f"{s}: {c:+.2f}%" for s, c in top_1h]) + "\n\n"
 
-def remove_coin_step(message):
-    symbol = message.text.upper()
-    if symbol in watchlist:
-        watchlist.remove(symbol)
-        bot.send_message(message.chat.id, f"{symbol} removed ❌")
-    else:
-        bot.send_message(message.chat.id, f"{symbol} not in watchlist")
+        # 24H movers
+        r = requests.get(BASE_URL + TICKER_24HR_ENDPOINT, timeout=10).json()
+        changes_24h = {x["symbol"]: float(x["priceChangePercent"]) for x in r if x["symbol"] in WATCHLIST}
+        top_24h = sorted(changes_24h.items(), key=lambda x: x[1], reverse=True)[:5]
+        text += "📅 24 Hour Movers:\n" + "\n".join([f"{s}: {c:+.2f}%" for s, c in top_24h])
 
-def signal_watcher():
+        bot.send_message(chat_id, text)
+
+    elif call.data == "signals_on":
+        user_signals[chat_id] = True
+        bot.send_message(chat_id, "✅ Signals are now ON")
+
+    elif call.data == "signals_off":
+        user_signals[chat_id] = False
+        bot.send_message(chat_id, "❌ Signals are now OFF")
+
+# Background task for signals
+def signal_loop():
     while True:
-        if signals_on:
-            for sym in watchlist:
-                sig = generate_signal(sym, "1m")
-                if sig:
-                    for chat_id in active_chats:
-                        bot.send_message(chat_id, f"⚡ Auto Signal:\n{sig}")
+        for chat_id, active in list(user_signals.items()):
+            if active:
+                for sym in WATCHLIST:
+                    for tf in ["1m", "5m", "15m"]:
+                        signal = generate_signal(sym, tf)
+                        if "BUY" in signal or "SELL" in signal:
+                            bot.send_message(chat_id, f"📢 {sym} ({tf}): {signal}")
         time.sleep(60)
 
-threading.Thread(target=signal_watcher, daemon=True).start()
+threading.Thread(target=signal_loop, daemon=True).start()
 
-app = Flask(__name__)
-
-@app.route("/" + BOT_TOKEN, methods=["POST"])
-def webhook():
-    update = telebot.types.Update.de_json(request.stream.read().decode("utf-8"))
-    bot.process_new_updates([update])
-    return "!", 200
-
-@app.route("/")
-def index():
-    return "Bot is running!", 200
-
-if __name__ == "__main__":
+# Run bot
+if WEBHOOK_URL:
     bot.remove_webhook()
     bot.set_webhook(url=WEBHOOK_URL)
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+else:
+    bot.polling(none_stop=True)
+
