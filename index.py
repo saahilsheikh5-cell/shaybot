@@ -1,4 +1,3 @@
-
 import os
 import telebot
 import requests
@@ -13,13 +12,11 @@ BOT_TOKEN = "7638935379:AAEmLD7JHLZ36Ywh5tvmlP1F8xzrcNrym_Q"
 WEBHOOK_URL = "https://shaybot-13.onrender.com/" + BOT_TOKEN
 bot = telebot.TeleBot(BOT_TOKEN)
 
-# Default portfolio and watchlist
 portfolio = {"BTCUSDT": 0.5, "ETHUSDT": 2, "SOLUSDT": 50}
 watchlist = set(portfolio.keys())
-
+signals_on = True
 BASE_URL = "https://api.binance.com/api/v3"
 
-# === HELPER FUNCTIONS ===
 def fetch_price(symbol):
     try:
         r = requests.get(f"{BASE_URL}/ticker/24hr?symbol={symbol}", timeout=5).json()
@@ -44,10 +41,6 @@ def calc_rsi(prices, period=14):
     if losses == 0: return 100
     rs = gains / losses
     return 100 - (100 / (1 + rs))
-
-def moving_average(prices, period=14):
-    if len(prices) < period: return None
-    return np.mean(prices[-period:])
 
 def calc_macd(prices, fast=12, slow=26, signal=9):
     if len(prices) < slow + signal: return None, None, None
@@ -110,7 +103,7 @@ def get_portfolio_summary():
     return text
 
 def get_signals_text():
-    text = "📊 *Technical Analysis Signals*\n\n"
+    text = "📊 *Technical Analysis Signals:*\n\n"
     for sym in watchlist:
         text += f"🔹 {sym}\n"
         for interval in ["1m","5m","15m","1h","4h"]:
@@ -120,7 +113,6 @@ def get_signals_text():
         text += "\n"
     return text
 
-# === DASHBOARD ===
 @bot.message_handler(commands=["start","dashboard"])
 def dashboard(message):
     markup = types.InlineKeyboardMarkup(row_width=2)
@@ -136,21 +128,60 @@ def dashboard(message):
     markup.add(types.InlineKeyboardButton("🔄 Refresh Dashboard", callback_data="refresh_dashboard"))
     bot.send_message(message.chat.id, "📌 *Crypto Dashboard*\n\nChoose an option:", reply_markup=markup, parse_mode="Markdown")
 
-# === CALLBACK HANDLER ===
 @bot.callback_query_handler(func=lambda call: True)
 def callback_handler(call):
-    # Keep all previous callback logic for portfolio, signals, movers, add/remove coins, refresh buttons
-    pass  # Replace with full callback code
+    chat_id = call.message.chat.id
+    data = call.data
 
-# === BACKGROUND SIGNAL ALERTS ===
+    if data == "portfolio":
+        bot.send_message(chat_id, get_portfolio_summary(), parse_mode="Markdown")
+    elif data == "technical_analysis":
+        bot.send_message(chat_id, get_signals_text(), parse_mode="Markdown")
+    elif data == "top_movers":
+        bot.send_message(chat_id, top_movers(), parse_mode="Markdown")
+    elif data == "add_coin":
+        bot.send_message(chat_id, "Send coin symbol to add (e.g., MATICUSDT)")
+        bot.register_next_step_handler(call.message, add_coin_step)
+    elif data == "remove_coin":
+        bot.send_message(chat_id, "Send coin symbol to remove")
+        bot.register_next_step_handler(call.message, remove_coin_step)
+    elif data == "toggle_signals":
+        global signals_on
+        signals_on = not signals_on
+        bot.send_message(chat_id, f"Signals are now {'ON' if signals_on else 'OFF'}")
+    elif data == "live_prices":
+        text = ""
+        for sym in watchlist:
+            price, change = fetch_price(sym)
+            if price: text += f"{sym}: ${price:.2f} ({change:+.2f}% 24h)\n"
+        bot.send_message(chat_id, text)
+    elif data == "refresh_dashboard":
+        dashboard(call.message)
+
+def add_coin_step(message):
+    symbol = message.text.upper()
+    watchlist.add(symbol)
+    bot.send_message(message.chat.id, f"{symbol} added ✅")
+
+def remove_coin_step(message):
+    symbol = message.text.upper()
+    if symbol in watchlist:
+        watchlist.remove(symbol)
+        bot.send_message(message.chat.id, f"{symbol} removed ❌")
+    else:
+        bot.send_message(message.chat.id, f"{symbol} not in watchlist")
+
 def signal_watcher():
     while True:
-        # send_signals() logic
+        if signals_on:
+            for sym in watchlist:
+                sig = generate_signal(sym, "1m")
+                if sig:
+                    pass
         time.sleep(60)
 
 threading.Thread(target=signal_watcher, daemon=True).start()
 
-# === FLASK WEBHOOK ===
 app = Flask(__name__)
 
 @app.route("/" + BOT_TOKEN, methods=["POST"])
