@@ -3,7 +3,7 @@ import telebot
 from telebot import types
 import requests
 import pandas as pd
-import ta
+import numpy as np
 import threading
 import time
 from flask import Flask, request
@@ -27,7 +27,6 @@ timeframes = ["1m", "5m", "15m", "1h", "4h", "1d"]
 # === CACHE CONFIG ===
 klines_cache = {}
 KL_CACHE_DURATION = 60  # seconds
-
 signal_cache = {}
 SIGNAL_CACHE_DURATION = 60  # seconds
 
@@ -52,6 +51,23 @@ def fetch_klines(symbol, interval, limit=100):
         return None
 
 # === TECHNICAL SIGNALS WITH CACHE ===
+def calc_rsi(prices, period=14):
+    if len(prices) < period: return None
+    deltas = np.diff(prices)
+    gain = np.mean([d for d in deltas if d > 0] or [0])
+    loss = -np.mean([d for d in deltas if d < 0] or [0])
+    if loss == 0: return 100
+    rs = gain / loss
+    return 100 - (100 / (1 + rs))
+
+def calc_macd(prices, fast=12, slow=26, signal=9):
+    if len(prices) < slow + signal: return None, None
+    ema_fast = np.mean(prices[-fast:])
+    ema_slow = np.mean(prices[-slow:])
+    macd = ema_fast - ema_slow
+    signal_line = np.mean(prices[-signal:])
+    return macd, signal_line
+
 def get_signal(symbol, interval):
     now = time.time()
     key = (symbol, interval)
@@ -63,14 +79,15 @@ def get_signal(symbol, interval):
         signal = "Error"
     else:
         try:
-            df["rsi"] = ta.momentum.RSIIndicator(df["close"], window=14).rsi()
-            df["macd"] = ta.trend.MACD(df["close"]).macd()
-            price = df["close"].iloc[-1]
-            rsi = df["rsi"].iloc[-1]
-            macd = df["macd"].iloc[-1]
-            if rsi < 30 and macd > 0:
+            close = df["close"].values
+            rsi = calc_rsi(close)
+            macd, signal_line = calc_macd(close)
+            price = close[-1]
+            if rsi is None or macd is None:
+                signal = "No clear signal"
+            elif rsi < 30 and macd > signal_line:
                 signal = f"✅ BUY | Price: {price:.2f}, RSI={rsi:.2f} (MACD Bullish)"
-            elif rsi > 70 and macd < 0:
+            elif rsi > 70 and macd < signal_line:
                 signal = f"❌ SELL | Price: {price:.2f}, RSI={rsi:.2f} (MACD Bearish)"
             else:
                 signal = "No clear signal"
@@ -86,7 +103,7 @@ def broadcast_signals():
     while True:
         if signals_enabled and chat_id:
             message = "📊 Technical Analysis Signals:\n\n"
-            for symbol in symbols[:10]:  # limit for faster broadcast
+            for symbol in symbols[:10]:
                 message += f"🔹 {symbol}\n"
                 for tf in timeframes:
                     message += f"   ⏱ {tf}: {get_signal(symbol, tf)}\n"
