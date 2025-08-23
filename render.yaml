@@ -1,8 +1,7 @@
 services:
   - type: web
-    name: telegram-crypto-bot
+    name: crypto-bot
     env: python
     plan: free
-    buildCommand: pip install -r requirements.txt
+    buildCommand: ""
     startCommand: python index.py
-    autoDeploy: true
