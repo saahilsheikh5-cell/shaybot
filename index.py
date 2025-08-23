@@ -1,3 +1,4 @@
+
 import os
 import telebot
 import requests
@@ -7,7 +8,6 @@ import numpy as np
 from flask import Flask, request
 from telebot import types
 
-# === CONFIG (hardcoded) ===
 BOT_TOKEN = "7638935379:AAEmLD7JHLZ36Ywh5tvmlP1F8xzrcNrym_Q"
 WEBHOOK_URL = "https://shaybot-13.onrender.com/" + BOT_TOKEN
 bot = telebot.TeleBot(BOT_TOKEN)
@@ -15,6 +15,7 @@ bot = telebot.TeleBot(BOT_TOKEN)
 portfolio = {"BTCUSDT": 0.5, "ETHUSDT": 2, "SOLUSDT": 50}
 watchlist = set(portfolio.keys())
 signals_on = True
+active_chats = set()
 BASE_URL = "https://api.binance.com/api/v3"
 
 def fetch_price(symbol):
@@ -115,6 +116,7 @@ def get_signals_text():
 
 @bot.message_handler(commands=["start","dashboard"])
 def dashboard(message):
+    active_chats.add(message.chat.id)
     markup = types.InlineKeyboardMarkup(row_width=2)
     markup.add(
         types.InlineKeyboardButton("📊 Portfolio", callback_data="portfolio"),
@@ -177,7 +179,8 @@ def signal_watcher():
             for sym in watchlist:
                 sig = generate_signal(sym, "1m")
                 if sig:
-                    pass
+                    for chat_id in active_chats:
+                        bot.send_message(chat_id, f"⚡ Auto Signal:\n{sig}")
         time.sleep(60)
 
 threading.Thread(target=signal_watcher, daemon=True).start()
