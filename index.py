@@ -24,8 +24,20 @@ symbols = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT",
            "MAVIAUSDT", "YFIUSDT", "ADAUSDT", "LINKUSDT"]
 timeframes = ["1m", "5m", "15m", "1h", "4h", "1d"]
 
-# === FETCH PRICE DATA ===
+# === CACHE CONFIG ===
+klines_cache = {}
+KL_CACHE_DURATION = 60  # seconds
+
+signal_cache = {}
+SIGNAL_CACHE_DURATION = 60  # seconds
+
+# === FETCH KLINES WITH CACHE ===
 def fetch_klines(symbol, interval, limit=100):
+    now = time.time()
+    key = (symbol, interval)
+    if key in klines_cache and now - klines_cache[key]["timestamp"] < KL_CACHE_DURATION:
+        return klines_cache[key]["data"]
+
     url = f"https://api.binance.com/api/v3/klines?symbol={symbol}&interval={interval}&limit={limit}"
     try:
         data = requests.get(url, timeout=5).json()
@@ -34,29 +46,39 @@ def fetch_klines(symbol, interval, limit=100):
             "close_time", "qav", "trades", "tbbav", "tbqav", "ignore"
         ])
         df["close"] = pd.to_numeric(df["close"])
+        klines_cache[key] = {"data": df, "timestamp": now}
         return df
     except:
         return None
 
-# === TECHNICAL SIGNALS ===
+# === TECHNICAL SIGNALS WITH CACHE ===
 def get_signal(symbol, interval):
+    now = time.time()
+    key = (symbol, interval)
+    if key in signal_cache and now - signal_cache[key]["timestamp"] < SIGNAL_CACHE_DURATION:
+        return signal_cache[key]["signal"]
+
     df = fetch_klines(symbol, interval)
     if df is None or df.empty:
-        return "Error"
-    try:
-        df["rsi"] = ta.momentum.RSIIndicator(df["close"], window=14).rsi()
-        df["macd"] = ta.trend.MACD(df["close"]).macd()
-        price = df["close"].iloc[-1]
-        rsi = df["rsi"].iloc[-1]
-        macd = df["macd"].iloc[-1]
-        if rsi < 30 and macd > 0:
-            return f"✅ BUY | Price: {price:.2f}, RSI={rsi:.2f} (MACD Bullish)"
-        elif rsi > 70 and macd < 0:
-            return f"❌ SELL | Price: {price:.2f}, RSI={rsi:.2f} (MACD Bearish)"
-        else:
-            return "No clear signal"
-    except:
-        return "Error"
+        signal = "Error"
+    else:
+        try:
+            df["rsi"] = ta.momentum.RSIIndicator(df["close"], window=14).rsi()
+            df["macd"] = ta.trend.MACD(df["close"]).macd()
+            price = df["close"].iloc[-1]
+            rsi = df["rsi"].iloc[-1]
+            macd = df["macd"].iloc[-1]
+            if rsi < 30 and macd > 0:
+                signal = f"✅ BUY | Price: {price:.2f}, RSI={rsi:.2f} (MACD Bullish)"
+            elif rsi > 70 and macd < 0:
+                signal = f"❌ SELL | Price: {price:.2f}, RSI={rsi:.2f} (MACD Bearish)"
+            else:
+                signal = "No clear signal"
+        except:
+            signal = "Error"
+
+    signal_cache[key] = {"signal": signal, "timestamp": now}
+    return signal
 
 # === SIGNAL BROADCAST ===
 def broadcast_signals():
@@ -64,7 +86,7 @@ def broadcast_signals():
     while True:
         if signals_enabled and chat_id:
             message = "📊 Technical Analysis Signals:\n\n"
-            for symbol in symbols[:10]:  # limit for fast message
+            for symbol in symbols[:10]:  # limit for faster broadcast
                 message += f"🔹 {symbol}\n"
                 for tf in timeframes:
                     message += f"   ⏱ {tf}: {get_signal(symbol, tf)}\n"
@@ -163,6 +185,7 @@ def index():
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     server.run(host="0.0.0.0", port=port)
+
 
 
 
