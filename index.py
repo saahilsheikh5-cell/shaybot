@@ -10,7 +10,7 @@ from flask import Flask, request
 
 # === BOT CONFIG ===
 BOT_TOKEN = "7638935379:AAEmLD7JHLZ36Ywh5tvmlP1F8xzrcNrym_Q"
-WEBHOOK_URL = "https://shaybot-13.onrender.com/" + BOT_TOKEN
+WEBHOOK_URL = "https://shaybot-14.onrender.com/" + BOT_TOKEN
 bot = telebot.TeleBot(BOT_TOKEN, parse_mode="HTML")
 
 # === SIGNAL STATE ===
