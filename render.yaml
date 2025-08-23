@@ -1,7 +1,10 @@
 services:
   - type: web
-    name: crypto-bot
+    name: shaybot-13
     env: python
     plan: free
-    buildCommand: ""
+    buildCommand: pip install -r requirements.txt
     startCommand: python index.py
+    branch: main
+    autoDeploy: true
+
