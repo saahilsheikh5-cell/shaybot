@@ -1,7 +1,6 @@
-Flask
 pyTelegramBotAPI
-requests
 pandas
-numpy
-TA-Lib
+requests
+ta
+
 
