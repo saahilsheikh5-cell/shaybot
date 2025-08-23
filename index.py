@@ -18,17 +18,19 @@ signals_enabled = True
 chat_id = None
 
 # === SYMBOLS & TIMEFRAMES ===
-symbols = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT",
-           "BNBUSDT", "PEPEUSDT", "BONKUSDT", "MEMEUSDT",
-           "PUMPUSDT", "FARTCOINUSDT", "TRUMPUSDT", "VINEUSDT",
-           "MAVIAUSDT", "YFIUSDT", "ADAUSDT", "LINKUSDT"]
+symbols = [
+    "BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT",
+    "BNBUSDT", "PEPEUSDT", "BONKUSDT", "MEMEUSDT",
+    "PUMPUSDT", "FARTCOINUSDT", "TRUMPUSDT", "VINEUSDT",
+    "MAVIAUSDT", "YFIUSDT", "ADAUSDT", "LINKUSDT"
+]
 timeframes = ["1m", "5m", "15m", "1h", "4h", "1d"]
 
 # === CACHE CONFIG ===
 klines_cache = {}
-KL_CACHE_DURATION = 60  # seconds
+KL_CACHE_DURATION = 60
 signal_cache = {}
-SIGNAL_CACHE_DURATION = 60  # seconds
+SIGNAL_CACHE_DURATION = 60
 
 # === FETCH KLINES WITH CACHE ===
 def fetch_klines(symbol, interval, limit=100):
@@ -50,7 +52,7 @@ def fetch_klines(symbol, interval, limit=100):
     except:
         return None
 
-# === TECHNICAL SIGNALS WITH CACHE ===
+# === TECHNICAL SIGNALS ===
 def calc_rsi(prices, period=14):
     if len(prices) < period: return None
     deltas = np.diff(prices)
